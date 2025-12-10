@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>早会签到系统 - 人脸识别</title>
+<script defer src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<style>
+body { 
+    font-family: 'Segoe UI', Arial, sans-serif; 
+    text-align:center; 
+    margin:0; 
+    padding:20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+}
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 20px;
+    padding: 30px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+h2 {
+    color: #2c3e50;
+    margin-bottom: 30px;
+    font-size: 28px;
+}
+.video-container { 
+    position: relative; 
+    display: inline-block; 
+    margin: 20px auto;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+#video { 
+    width: 640px; 
+    height: 480px; 
+    background: #000;
+    transform: scaleX(-1); /* Mirror effect */
+}
+#status { 
+    margin: 20px 0; 
+    font-weight: bold; 
+    font-size: 20px;
+    padding: 15px;
+    border-radius: 10px;
+    background: #f8f9fa;
+}
+.loading { color: #3498db; }
+.success { color: #27ae60; }
+.error { color: #e74c3c; }
+.waiting { color: #f39c12; }
+
+canvas { 
+    position: absolute; 
+    top: 0; 
+    left: 0; 
+    z-index: 10;
+    pointer-events: none;
+}
+
+.recognition-panel {
+    margin: 30px auto;
+    padding: 25px;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 15px;
+    max-width: 600px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.stat-item {
+    background: white;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: left;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+}
+
+.stat-item .label {
+    font-size: 14px;
+    color: #7f8c8d;
+    margin-bottom: 5px;
+}
+
+.stat-item .value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.signin-success {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    color: #155724;
+    border: 2px solid #28a745;
+    padding: 25px;
+    margin: 30px auto;
+    border-radius: 15px;
+    max-width: 600px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+.security-indicator {
+    display: inline-block;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    margin-right: 10px;
+    vertical-align: middle;
+}
+
+.security-high { background: #27ae60; box-shadow: 0 0 10px #27ae60; }
+.security-medium { background: #f39c12; box-shadow: 0 0 10px #f39c12; }
+.security-low { background: #e74c3c; box-shadow: 0 0 10px #e74c3c; }
+
+.countdown {
+    font-size: 24px;
+    font-weight: bold;
+    color: #e74c3c;
+    margin-top: 20px;
+}
+
+.instructions {
+    background: #e3f2fd;
+    padding: 15px;
+    border-radius: 10px;
+    margin: 20px 0;
+    font-size: 16px;
+    color: #1565c0;
+}
+
+#debugInfo {
+    font-family: monospace;
+    font-size: 12px;
+    color: #666;
+    text-align: left;
+    margin-top: 20px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+    <h2>📋 早会人脸识别签到系统</h2>
+    
+    <div class="instructions">
+        💡 请正对摄像头，保持面部在框内。识别成功后将自动签到。
+    </div>
+    
+    <div class="video-container">
+        <video id="video" width="640" height="480" autoplay muted playsinline></video>
+    </div>
+    
+    <div id="status" class="loading">正在初始化系统...</div>
+    
+    <div id="recognitionPanel" class="recognition-panel" style="display: none;">
+        <h3>识别信息</h3>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="label">姓名</div>
+                <div class="value" id="recognizedName">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">置信度</div>
+                <div class="value" id="recognitionConfidence">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">连续匹配</div>
+                <div class="value" id="consecutiveMatches">0/3</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">安全等级</div>
+                <div class="value">
+                    <span class="security-indicator" id="securityIndicator"></span>
+                    <span id="securityLevel">-</span>
+                </div>
+            </div>
+        </div>
+        <div id="recognitionStatus" style="font-weight: bold; margin-top: 15px; color: #7f8c8d;">
+            正在检测...
+        </div>
+    </div>
+    
+    <div id="signinSuccess" class="signin-success" style="display: none;">
+        <h3>✅ 签到成功！</h3>
+        <p><strong>姓名：</strong><span id="successName">-</span></p>
+        <p><strong>时间：</strong><span id="successTime">-</span></p>
+        <p><strong>状态：</strong><span id="successStatus">✓ 已记录到Google表格</span></p>
+        <div id="countdownContainer" style="display: none;">
+            <p class="countdown"><span id="countdown">3</span> 秒后重置</p>
+        </div>
+    </div>
+    
+    <div id="debugInfo"></div>
+</div>
+
+<!-- Hidden elements for GAS submission -->
+<iframe name="hiddenFrame" style="display:none;"></iframe>
+<form id="gasForm" method="post" target="hiddenFrame" style="display: none;">
+    <input type="hidden" name="name" id="gasName">
+    <input type="hidden" name="timestamp" id="gasTimestamp">
+    <input type="hidden" name="confidence" id="gasConfidence">
+</form>
+
+<script>
+// ===============================
+// 配置
+// ===============================
+// 替换为你的GAS Web App URL（部署后获取）
+const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwhmzM9zfJeSUG7ACKyO_CfGLn_GqaBt4EiigvtWEI5PXbIVU1AkDux88X2XbkuNJrT/exec';
+// 用于从GAS获取人脸数据
+const GAS_FACE_DATA_URL = GAS_WEB_APP_URL + '?action=getFaceData';
+
+// ===============================
+// 人脸验证器类
+// ===============================
+class EnhancedFaceVerifier {
+    constructor() {
+        this.knownFaces = new Map();
+        this.consecutiveMatches = new Map();
+        this.REQUIRED_CONSECUTIVE = 3;
+        this.lastVerificationTime = 0;
+        this.verificationDelay = 300;
+    }
+    
+    addKnownFace(name, embeddings) {
+        if (!Array.isArray(embeddings[0])) {
+            embeddings = [embeddings];
+        }
+        
+        const mean = this.calculateMean(embeddings);
+        const std = this.calculateStd(embeddings, mean);
+        const minSimilarity = this.calculateMinSimilarity(embeddings);
+        
+        this.knownFaces.set(name, {
+            name: name,
+            embeddings: embeddings,
+            mean: mean,
+            std: std,
+            minSimilarity: minSimilarity
+        });
+        
+        this.consecutiveMatches.set(name, 0);
+    }
+    
+    calculateMean(embeddings) {
+        const dimensions = embeddings[0].length;
+        const mean = new Array(dimensions).fill(0);
+        
+        for (const emb of embeddings) {
+            for (let i = 0; i < dimensions; i++) {
+                mean[i] += emb[i];
+            }
+        }
+        
+        return mean.map(val => val / embeddings.length);
+    }
+    
+    calculateStd(embeddings, mean) {
+        const dimensions = embeddings[0].length;
+        const variance = new Array(dimensions).fill(0);
+        
+        for (const emb of embeddings) {
+            for (let i = 0; i < dimensions; i++) {
+                variance[i] += Math.pow(emb[i] - mean[i], 2);
+            }
+        }
+        
+        return variance.map(val => Math.sqrt(val / embeddings.length) + 1e-8);
+    }
+    
+    calculateMinSimilarity(embeddings) {
+        if (embeddings.length <= 1) return 0.9;
+        
+        let minSim = 1;
+        for (let i = 0; i < embeddings.length; i++) {
+            for (let j = i + 1; j < embeddings.length; j++) {
+                const sim = this.cosineSimilarity(embeddings[i], embeddings[j]);
+                if (sim < minSim) minSim = sim;
+            }
+        }
+        return minSim;
+    }
+    
+    cosineSimilarity(a, b) {
+        let dot = 0, normA = 0, normB = 0;
+        for (let i = 0; i < a.length; i++) {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+    
+    zScoreDistance(liveEmbedding, knownFace) {
+        let totalZ = 0;
+        const dimensions = liveEmbedding.length;
+        
+        for (let i = 0; i < dimensions; i++) {
+            const z = Math.abs((liveEmbedding[i] - knownFace.mean[i]) / knownFace.std[i]);
+            totalZ += z;
+        }
+        
+        return totalZ / dimensions;
+    }
+    
+    verifyFace(liveEmbedding) {
+        const now = Date.now();
+        if (now - this.lastVerificationTime < this.verificationDelay) {
+            return null;
+        }
+        this.lastVerificationTime = now;
+        
+        let bestMatch = null;
+        let bestScore = Infinity;
+        let bestSimilarity = -1;
+        let bestZScore = Infinity;
+        
+        for (const [name, faceData] of this.knownFaces) {
+            const zScore = this.zScoreDistance(liveEmbedding, faceData);
+            const similarity = this.cosineSimilarity(liveEmbedding, faceData.mean);
+            const combinedScore = zScore * 0.7 + (1 - similarity) * 0.3;
+            
+            if (combinedScore < bestScore) {
+                bestScore = combinedScore;
+                bestSimilarity = similarity;
+                bestZScore = zScore;
+                bestMatch = name;
+            }
+        }
+        
+        if (!bestMatch) return null;
+        
+        const faceData = this.knownFaces.get(bestMatch);
+        
+        const isZScoreValid = bestZScore < 1.1;
+        const isSimilarityValid = bestSimilarity > 0.68;
+        const isInternalValid = bestSimilarity > (faceData.minSimilarity * 0.8);
+        
+        if (isZScoreValid && isSimilarityValid && isInternalValid) {
+            const currentCount = this.consecutiveMatches.get(bestMatch) + 1;
+            this.consecutiveMatches.set(bestMatch, currentCount);
+            
+            for (const [name] of this.consecutiveMatches) {
+                if (name !== bestMatch) {
+                    this.consecutiveMatches.set(name, 0);
+                }
+            }
+            
+            const confidence = Math.min(0.99, 0.7 * (1 - bestZScore) + 0.3 * bestSimilarity);
+            
+            return {
+                name: bestMatch,
+                zScore: bestZScore,
+                similarity: bestSimilarity,
+                confidence: confidence,
+                consecutiveMatches: currentCount,
+                isConfirmed: currentCount >= this.REQUIRED_CONSECUTIVE,
+                securityLevel: this.getSecurityLevel(confidence, bestZScore, bestSimilarity)
+            };
+        } else {
+            this.consecutiveMatches.set(bestMatch, 0);
+            return null;
+        }
+    }
+    
+    getSecurityLevel(confidence, zScore, similarity) {
+        if (confidence > 0.85 && zScore < 0.7 && similarity > 0.8) return 'high';
+        if (confidence > 0.75 && zScore < 0.8 && similarity > 0.75) return 'medium';
+        return 'low';
+    }
+}
+
+// ===============================
+// 主程序
+// ===============================
+let faceVerifier = null;
+let isRecognizing = false;
+let modelsLoaded = false;
+let hasSignedIn = false;
+let isSubmitting = false;
+let recognitionTimeout = null;
+let countdownInterval = null;
+
+const videoElement = document.getElementById('video');
+const statusEl = document.getElementById('status');
+const recognitionPanel = document.getElementById('recognitionPanel');
+const recognizedNameEl = document.getElementById('recognizedName');
+const recognitionConfidenceEl = document.getElementById('recognitionConfidence');
+const consecutiveMatchesEl = document.getElementById('consecutiveMatches');
+const recognitionStatusEl = document.getElementById('recognitionStatus');
+const securityIndicator = document.getElementById('securityIndicator');
+const securityLevelEl = document.getElementById('securityLevel');
+const signinSuccessEl = document.getElementById('signinSuccess');
+const successNameEl = document.getElementById('successName');
+const successTimeEl = document.getElementById('successTime');
+const successStatusEl = document.getElementById('successStatus');
+const countdownContainer = document.getElementById('countdownContainer');
+const countdownEl = document.getElementById('countdown');
+const debugInfoEl = document.getElementById('debugInfo');
+const gasForm = document.getElementById('gasForm');
+
+// 页面加载
+window.addEventListener('load', async () => {
+    try {
+        updateDebugInfo('正在初始化系统...');
+        
+        // 检查face-api.js
+        await checkFaceAPI();
+        
+        // 启动摄像头
+        await startCamera();
+        
+        // 加载模型
+        await loadModels();
+        
+        // 初始化验证器
+        faceVerifier = new EnhancedFaceVerifier();
+        
+        // 从GAS加载人脸数据
+        await loadFaceDataFromGAS();
+        
+        modelsLoaded = true;
+        statusEl.textContent = '✓ 系统就绪！请正对摄像头';
+        statusEl.className = 'success';
+        
+        recognitionPanel.style.display = 'block';
+        updateDebugInfo('系统初始化完成，开始识别');
+        
+        // 开始识别循环
+        recognizeLoop();
+        
+    } catch (error) {
+        console.error('初始化失败:', error);
+        statusEl.textContent = '初始化失败: ' + error.message;
+        statusEl.className = 'error';
+        updateDebugInfo('初始化错误: ' + error.message);
+    }
+});
+
+async function checkFaceAPI() {
+    return new Promise((resolve, reject) => {
+        if (window.faceapi) {
+            resolve();
+            return;
+        }
+        
+        let attempts = 0;
+        const maxAttempts = 30;
+        const interval = setInterval(() => {
+            attempts++;
+            if (window.faceapi) {
+                clearInterval(interval);
+                resolve();
+            } else if (attempts >= maxAttempts) {
+                clearInterval(interval);
+                reject(new Error('face-api.js 加载超时'));
+            }
+        }, 100);
+    });
+}
+
+async function startCamera() {
+    try {
+        statusEl.textContent = '正在请求摄像头权限...';
+        statusEl.className = 'loading';
+        
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                width: 640, 
+                height: 480,
+                facingMode: "user" 
+            } 
+        });
+        
+        videoElement.srcObject = stream;
+        
+        return new Promise((resolve) => {
+            videoElement.onloadedmetadata = () => {
+                videoElement.play();
+                updateDebugInfo('摄像头启动成功');
+                resolve();
+            };
+        });
+    } catch (error) {
+        updateDebugInfo('摄像头错误: ' + error.message);
+        throw new Error('无法访问摄像头: ' + error.message);
+    }
+}
+
+async function loadModels() {
+    try {
+        statusEl.textContent = '正在加载人脸识别模型...';
+        statusEl.className = 'loading';
+        
+        const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
+        
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        
+        updateDebugInfo('人脸模型加载成功');
+        
+    } catch (error) {
+        updateDebugInfo('模型加载失败: ' + error.message);
+        throw new Error('模型加载失败: ' + error.message);
+    }
+}
+
+async function loadFaceDataFromGAS() {
+    try {
+        statusEl.textContent = '正在加载人脸数据...';
+        statusEl.className = 'loading';
+        
+        updateDebugInfo('从GAS获取人脸数据: ' + GAS_FACE_DATA_URL);
+        
+        const response = await fetch(GAS_FACE_DATA_URL);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.status === 'success' && result.data) {
+            let loadedCount = 0;
+            result.data.forEach(person => {
+                if (person.embeddings) {
+                    faceVerifier.addKnownFace(person.name, person.embeddings);
+                    loadedCount++;
+                    updateDebugInfo(`加载用户: ${person.name}, 样本数: ${person.sample_count}`);
+                }
+            });
+            
+            statusEl.textContent = `✓ 已加载 ${loadedCount} 个用户的人脸数据`;
+            statusEl.className = 'success';
+            updateDebugInfo(`成功加载 ${loadedCount} 个用户数据`);
+        } else {
+            throw new Error('数据格式错误: ' + (result.message || '未知错误'));
+        }
+    } catch (error) {
+        updateDebugInfo('加载人脸数据失败: ' + error.message);
+        throw new Error('人脸数据加载失败: ' + error.message);
+    }
+}
+
+async function recognizeLoop() {
+    if (!modelsLoaded || isRecognizing || hasSignedIn) return;
+    
+    try {
+        isRecognizing = true;
+        
+        const detection = await faceapi
+            .detectSingleFace(videoElement, new faceapi.TinyFaceDetectorOptions({
+                inputSize: 320,
+                scoreThreshold: 0.6
+            }))
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+        
+        if (detection && detection.detection.score > 0.7) {
+            const result = faceVerifier.verifyFace(detection.descriptor);
+            
+            if (result) {
+                // 更新UI
+                updateRecognitionUI(result);
+                
+                // 检查是否确认
+                if (result.isConfirmed && result.confidence > 0.85 && !hasSignedIn) {
+                    hasSignedIn = true;
+                    showSignInSuccess(result.name, result);
+                    sendSignInToGAS(result.name, result.confidence);
+                }
+                
+                // 绘制检测框
+                drawDetection(detection, result);
+            } else {
+                recognitionStatusEl.textContent = '未识别，请正对摄像头';
+                recognitionStatusEl.style.color = '#e74c3c';
+                clearRecognitionUI();
+            }
+        } else {
+            recognitionStatusEl.textContent = detection ? 
+                `人脸质量低: ${detection.detection.score.toFixed(3)}` : 
+                '未检测到人脸';
+            recognitionStatusEl.style.color = '#f39c12';
+            clearRecognitionUI();
+        }
+        
+    } catch (error) {
+        console.error('识别错误:', error);
+        recognitionStatusEl.textContent = '识别错误';
+        recognitionStatusEl.style.color = '#e74c3c';
+    } finally {
+        isRecognizing = false;
+        
+        if (!hasSignedIn) {
+            recognitionTimeout = setTimeout(recognizeLoop, 300);
+        }
+    }
+}
+
+function updateRecognitionUI(result) {
+    recognizedNameEl.textContent = result.name;
+    recognitionConfidenceEl.textContent = (result.confidence * 100).toFixed(1) + '%';
+    consecutiveMatchesEl.textContent = `${result.consecutiveMatches}/${faceVerifier.REQUIRED_CONSECUTIVE}`;
+    
+    // 更新安全等级
+    securityIndicator.className = 'security-indicator security-' + result.securityLevel;
+    securityLevelEl.textContent = 
+        result.securityLevel === 'high' ? '高' : 
+        result.securityLevel === 'medium' ? '中' : '低';
+    
+    if (result.isConfirmed) {
+        recognitionStatusEl.textContent = '✓ 高置信度确认！准备签到...';
+        recognitionStatusEl.style.color = '#27ae60';
+    } else {
+        recognitionStatusEl.textContent = `匹配中... (${result.consecutiveMatches}/${faceVerifier.REQUIRED_CONSECUTIVE})`;
+        recognitionStatusEl.style.color = '#f39c12';
+    }
+}
+
+function clearRecognitionUI() {
+    recognizedNameEl.textContent = '-';
+    recognitionConfidenceEl.textContent = '-';
+    consecutiveMatchesEl.textContent = '0/3';
+    securityIndicator.className = 'security-indicator';
+    securityLevelEl.textContent = '-';
+}
+
+function drawDetection(detection, result) {
+    const oldCanvas = document.querySelector('canvas');
+    if (oldCanvas) oldCanvas.remove();
+    
+    const canvas = faceapi.createCanvasFromMedia(videoElement);
+    const container = document.querySelector('.video-container');
+    container.appendChild(canvas);
+    
+    const displaySize = { width: videoElement.width, height: videoElement.height };
+    faceapi.matchDimensions(canvas, displaySize);
+    
+    const resizedDetection = faceapi.resizeResults(detection, displaySize);
+    
+    // 设置边框颜色
+    const borderColor = result.confidence > 0.85 ? '#27ae60' : 
+                       result.confidence > 0.75 ? '#f39c12' : '#e74c3c';
+    
+    const ctx = canvas.getContext('2d');
+    
+    // 绘制检测框
+    faceapi.draw.drawDetections(canvas, [resizedDetection], { 
+        lineWidth: 2,
+        boxColor: borderColor
+    });
+    
+    // 添加文字
+    ctx.font = 'bold 16px Arial';
+    ctx.fillStyle = borderColor;
+    ctx.fillText(
+        `${result.name} (${(result.confidence*100).toFixed(1)}%)`, 
+        resizedDetection.detection.box.x, 
+        resizedDetection.detection.box.y - 10
+    );
+}
+
+function showSignInSuccess(name, result) {
+    const now = new Date();
+    successNameEl.textContent = name;
+    successTimeEl.textContent = now.toLocaleString('zh-CN');
+    successStatusEl.textContent = '正在提交到Google表格...';
+    
+    recognitionPanel.style.display = 'none';
+    signinSuccessEl.style.display = 'block';
+    
+    // 停止摄像头
+    if (videoElement.srcObject) {
+        const tracks = videoElement.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+    }
+    
+    statusEl.textContent = `✅ ${name} 签到成功！`;
+    statusEl.className = 'success';
+    
+    // 清除之前的定时器
+    if (recognitionTimeout) {
+        clearTimeout(recognitionTimeout);
+    }
+}
+
+async function sendSignInToGAS(name, confidence) {
+    try {
+        updateDebugInfo('开始提交签到数据...');
+        
+        // 使用FormData提交到GAS
+        const formData = new FormData();
+        formData.append('action', 'signIn');
+        formData.append('name', name);
+        formData.append('timestamp', new Date().toISOString());
+        
+        const response = await fetch(GAS_WEB_APP_URL, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                successStatusEl.textContent = '✓ 已成功记录到Google表格';
+                successStatusEl.style.color = '#27ae60';
+                updateDebugInfo(`签到成功: ${name}, 时间: ${result.timestamp}`);
+                
+                // 3秒后重置系统
+                startCountdown();
+            } else {
+                throw new Error(result.message || '签到失败');
+            }
+        } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+    } catch (error) {
+        console.error('提交失败:', error);
+        successStatusEl.textContent = '✗ 提交失败: ' + error.message;
+        successStatusEl.style.color = '#e74c3c';
+        updateDebugInfo('提交失败: ' + error.message);
+        
+        // 5秒后重置
+        setTimeout(resetSystem, 5000);
+    }
+}
+
+function startCountdown() {
+    countdownContainer.style.display = 'block';
+    let count = 3;
+    
+    countdownInterval = setInterval(() => {
+        countdownEl.textContent = count;
+        if (count <= 0) {
+            clearInterval(countdownInterval);
+            resetSystem();
+        }
+        count--;
+    }, 1000);
+}
+
+function resetSystem() {
+    // 清除所有状态
+    hasSignedIn = false;
+    isSubmitting = false;
+    
+    // 隐藏成功消息
+    signinSuccessEl.style.display = 'none';
+    countdownContainer.style.display = 'none';
+    
+    // 显示识别面板
+    recognitionPanel.style.display = 'block';
+    
+    // 重启摄像头
+    startCamera().then(() => {
+        statusEl.textContent = '系统已重置！请下一位签到';
+        statusEl.className = 'success';
+        clearRecognitionUI();
+        
+        // 重新开始识别
+        if (recognitionTimeout) {
+            clearTimeout(recognitionTimeout);
+        }
+        recognizeLoop();
+    });
+}
+
+function updateDebugInfo(message) {
+    const timestamp = new Date().toLocaleTimeString();
+    debugInfoEl.innerHTML = `[${timestamp}] ${message}<br>` + debugInfoEl.innerHTML;
+    if (debugInfoEl.children.length > 10) {
+        debugInfoEl.removeChild(debugInfoEl.lastChild);
+    }
+}
+
+// 页面卸载时清理
+window.addEventListener('beforeunload', () => {
+    if (videoElement.srcObject) {
+        const tracks = videoElement.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+    }
+    if (recognitionTimeout) {
+        clearTimeout(recognitionTimeout);
+    }
+    if (countdownInterval) {
+        clearInterval(countdownInterval);
+    }
+});
+
+// 全局错误处理
+window.addEventListener('error', (e) => {
+    console.error('全局错误:', e.error);
+    updateDebugInfo('全局错误: ' + e.message);
+    if (statusEl) {
+        statusEl.textContent = '系统错误: ' + e.message;
+        statusEl.className = 'error';
+    }
+});
+</script>
+</body>
+</html>
